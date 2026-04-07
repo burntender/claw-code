@@ -1844,8 +1844,6 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                             serde_json::to_string_pretty(&value)
                                 .expect("resume command json output")
                         );
-                    } else if let Some(message) = message {
-                        println!("{message}");
                     }
                 } else if let Some(message) = message {
                     println!("{message}");
@@ -4165,66 +4163,52 @@ fn print_status_snapshot(
         ),
         CliOutputFormat::Json => println!(
             "{}",
-            serde_json::to_string_pretty(&status_json_value(
-                model,
-                usage,
-                permission_mode.as_str(),
-                &context,
-            ))?
+            serde_json::to_string_pretty(&json!({
+                "kind": "status",
+                "model": model,
+                "permission_mode": permission_mode.as_str(),
+                "usage": {
+                    "messages": usage.message_count,
+                    "turns": usage.turns,
+                    "latest_total": usage.latest.total_tokens(),
+                    "cumulative_input": usage.cumulative.input_tokens,
+                    "cumulative_output": usage.cumulative.output_tokens,
+                    "cumulative_total": usage.cumulative.total_tokens(),
+                    "estimated_tokens": usage.estimated_tokens,
+                },
+                "workspace": {
+                    "cwd": context.cwd,
+                    "project_root": context.project_root,
+                    "git_branch": context.git_branch,
+                    "git_state": context.git_summary.headline(),
+                    "changed_files": context.git_summary.changed_files,
+                    "staged_files": context.git_summary.staged_files,
+                    "unstaged_files": context.git_summary.unstaged_files,
+                    "untracked_files": context.git_summary.untracked_files,
+                    "session": context.session_path.as_ref().map_or_else(|| "live-repl".to_string(), |path| path.display().to_string()),
+                    "loaded_config_files": context.loaded_config_files,
+                    "discovered_config_files": context.discovered_config_files,
+                    "memory_file_count": context.memory_file_count,
+                },
+                "sandbox": {
+                    "enabled": context.sandbox_status.enabled,
+                    "active": context.sandbox_status.active,
+                    "supported": context.sandbox_status.supported,
+                    "in_container": context.sandbox_status.in_container,
+                    "requested_namespace": context.sandbox_status.requested.namespace_restrictions,
+                    "active_namespace": context.sandbox_status.namespace_active,
+                    "requested_network": context.sandbox_status.requested.network_isolation,
+                    "active_network": context.sandbox_status.network_active,
+                    "filesystem_mode": context.sandbox_status.filesystem_mode.as_str(),
+                    "filesystem_active": context.sandbox_status.filesystem_active,
+                    "allowed_mounts": context.sandbox_status.allowed_mounts,
+                    "markers": context.sandbox_status.container_markers,
+                    "fallback_reason": context.sandbox_status.fallback_reason,
+                }
+            }))?
         ),
     }
     Ok(())
-}
-
-fn status_json_value(
-    model: &str,
-    usage: StatusUsage,
-    permission_mode: &str,
-    context: &StatusContext,
-) -> serde_json::Value {
-    json!({
-        "kind": "status",
-        "model": model,
-        "permission_mode": permission_mode,
-        "usage": {
-            "messages": usage.message_count,
-            "turns": usage.turns,
-            "latest_total": usage.latest.total_tokens(),
-            "cumulative_input": usage.cumulative.input_tokens,
-            "cumulative_output": usage.cumulative.output_tokens,
-            "cumulative_total": usage.cumulative.total_tokens(),
-            "estimated_tokens": usage.estimated_tokens,
-        },
-        "workspace": {
-            "cwd": context.cwd,
-            "project_root": context.project_root,
-            "git_branch": context.git_branch,
-            "git_state": context.git_summary.headline(),
-            "changed_files": context.git_summary.changed_files,
-            "staged_files": context.git_summary.staged_files,
-            "unstaged_files": context.git_summary.unstaged_files,
-            "untracked_files": context.git_summary.untracked_files,
-            "session": context.session_path.as_ref().map_or_else(|| "live-repl".to_string(), |path| path.display().to_string()),
-            "loaded_config_files": context.loaded_config_files,
-            "discovered_config_files": context.discovered_config_files,
-            "memory_file_count": context.memory_file_count,
-        },
-        "sandbox": {
-            "enabled": context.sandbox_status.enabled,
-            "active": context.sandbox_status.active,
-            "supported": context.sandbox_status.supported,
-            "in_container": context.sandbox_status.in_container,
-            "requested_namespace": context.sandbox_status.requested.namespace_restrictions,
-            "active_namespace": context.sandbox_status.namespace_active,
-            "requested_network": context.sandbox_status.requested.network_isolation,
-            "active_network": context.sandbox_status.network_active,
-            "filesystem_mode": context.sandbox_status.filesystem_mode.as_str(),
-            "filesystem_active": context.sandbox_status.filesystem_active,
-            "allowed_mounts": context.sandbox_status.allowed_mounts,
-            "markers": context.sandbox_status.container_markers,
-            "fallback_reason": context.sandbox_status.fallback_reason,
-        }
-    })
 }
 
 fn status_context(
@@ -4319,6 +4303,52 @@ fn format_status_report(
 
 ",
     )
+}
+
+fn status_json_value(
+    model: &str,
+    usage: StatusUsage,
+    permission_mode: &str,
+    context: &StatusContext,
+) -> serde_json::Value {
+    json!({
+        "kind": "status",
+        "model": model,
+        "permission_mode": permission_mode,
+        "messages": usage.message_count,
+        "turns": usage.turns,
+        "estimated_tokens": usage.estimated_tokens,
+        "usage": {
+            "latest": {
+                "input_tokens": usage.latest.input_tokens,
+                "output_tokens": usage.latest.output_tokens,
+                "total_tokens": usage.latest.total_tokens(),
+            },
+            "cumulative": {
+                "input_tokens": usage.cumulative.input_tokens,
+                "output_tokens": usage.cumulative.output_tokens,
+                "total_tokens": usage.cumulative.total_tokens(),
+            }
+        },
+        "workspace": {
+            "cwd": context.cwd,
+            "project_root": context.project_root,
+            "git_branch": context.git_branch,
+            "git_state": context.git_summary.headline(),
+            "changed_files": context.git_summary.changed_files,
+            "staged_files": context.git_summary.staged_files,
+            "unstaged_files": context.git_summary.unstaged_files,
+            "untracked_files": context.git_summary.untracked_files,
+            "session": context.session_path.as_ref().map_or_else(
+                || "live-repl".to_string(),
+                |path| path.display().to_string()
+            ),
+            "loaded_config_files": context.loaded_config_files,
+            "discovered_config_files": context.discovered_config_files,
+            "memory_file_count": context.memory_file_count,
+        },
+        "sandbox": sandbox_json_value(&context.sandbox_status),
+    })
 }
 
 fn format_sandbox_report(status: &runtime::SandboxStatus) -> String {
@@ -5671,6 +5701,7 @@ impl ApiClient for AnthropicRuntimeClient {
             let mut events = Vec::new();
             let mut pending_tool: Option<(String, String, String)> = None;
             let mut block_has_thinking_summary = false;
+            let mut output_line_open = false;
             let mut saw_stop = false;
 
             while let Some(event) = stream.next_event().await.map_err(|error| {
@@ -5686,6 +5717,7 @@ impl ApiClient for AnthropicRuntimeClient {
                                 &mut pending_tool,
                                 true,
                                 &mut block_has_thinking_summary,
+                                &mut output_line_open,
                             )?;
                         }
                     }
@@ -5697,6 +5729,7 @@ impl ApiClient for AnthropicRuntimeClient {
                             &mut pending_tool,
                             true,
                             &mut block_has_thinking_summary,
+                            &mut output_line_open,
                         )?;
                     }
                     ApiStreamEvent::ContentBlockDelta(delta) => match delta.delta {
@@ -5709,6 +5742,7 @@ impl ApiClient for AnthropicRuntimeClient {
                                     write!(out, "{rendered}")
                                         .and_then(|()| out.flush())
                                         .map_err(|error| RuntimeError::new(error.to_string()))?;
+                                    output_line_open = !rendered.ends_with('\n');
                                 }
                                 events.push(AssistantEvent::TextDelta(text));
                             }
@@ -5732,6 +5766,7 @@ impl ApiClient for AnthropicRuntimeClient {
                             write!(out, "{rendered}")
                                 .and_then(|()| out.flush())
                                 .map_err(|error| RuntimeError::new(error.to_string()))?;
+                            output_line_open = !rendered.ends_with('\n');
                         }
                         if let Some((id, name, input)) = pending_tool.take() {
                             if let Some(progress_reporter) = &self.progress_reporter {
@@ -5741,6 +5776,7 @@ impl ApiClient for AnthropicRuntimeClient {
                             writeln!(out, "\n{}", format_tool_call_start(&name, &input))
                                 .and_then(|()| out.flush())
                                 .map_err(|error| RuntimeError::new(error.to_string()))?;
+                            output_line_open = false;
                             events.push(AssistantEvent::ToolUse { id, name, input });
                         }
                     }
@@ -5753,6 +5789,13 @@ impl ApiClient for AnthropicRuntimeClient {
                             write!(out, "{rendered}")
                                 .and_then(|()| out.flush())
                                 .map_err(|error| RuntimeError::new(error.to_string()))?;
+                            output_line_open = !rendered.ends_with('\n');
+                        }
+                        if output_line_open {
+                            writeln!(out)
+                                .and_then(|()| out.flush())
+                                .map_err(|error| RuntimeError::new(error.to_string()))?;
+                            output_line_open = false;
                         }
                         events.push(AssistantEvent::MessageStop);
                     }
@@ -6486,6 +6529,7 @@ fn push_output_block(
     pending_tool: &mut Option<(String, String, String)>,
     streaming_tool_input: bool,
     block_has_thinking_summary: &mut bool,
+    output_line_open: &mut bool,
 ) -> Result<(), RuntimeError> {
     match block {
         OutputContentBlock::Text { text } => {
@@ -6494,6 +6538,7 @@ fn push_output_block(
                 write!(out, "{rendered}")
                     .and_then(|()| out.flush())
                     .map_err(|error| RuntimeError::new(error.to_string()))?;
+                *output_line_open = !rendered.ends_with('\n');
                 events.push(AssistantEvent::TextDelta(text));
             }
         }
@@ -6529,6 +6574,7 @@ fn response_to_events(
 ) -> Result<Vec<AssistantEvent>, RuntimeError> {
     let mut events = Vec::new();
     let mut pending_tool = None;
+    let mut output_line_open = false;
 
     for block in response.content {
         let mut block_has_thinking_summary = false;
@@ -6539,10 +6585,15 @@ fn response_to_events(
             &mut pending_tool,
             false,
             &mut block_has_thinking_summary,
+            &mut output_line_open,
         )?;
         if let Some((id, name, input)) = pending_tool.take() {
             events.push(AssistantEvent::ToolUse { id, name, input });
         }
+    }
+
+    if output_line_open {
+        writeln!(out).map_err(|error| RuntimeError::new(error.to_string()))?;
     }
 
     events.push(AssistantEvent::Usage(response.usage.token_usage()));
