@@ -608,7 +608,7 @@ impl MarkdownStreamState {
         let split = find_stream_safe_boundary(&self.pending)?;
         let ready = self.pending[..split].to_string();
         self.pending.drain(..split);
-        Some(renderer.markdown_to_ansi(&ready))
+        Some(render_stream_markdown(renderer, &ready))
     }
 
     #[must_use]
@@ -618,9 +618,25 @@ impl MarkdownStreamState {
             None
         } else {
             let pending = std::mem::take(&mut self.pending);
-            Some(renderer.markdown_to_ansi(&pending))
+            Some(render_stream_markdown(renderer, &pending))
         }
     }
+}
+
+fn render_stream_markdown(renderer: &TerminalRenderer, markdown: &str) -> String {
+    let mut rendered = renderer.markdown_to_ansi(markdown);
+    let trailing_newlines = markdown
+        .as_bytes()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\n')
+        .count();
+
+    if trailing_newlines > 0 {
+        rendered.push_str(&"\n".repeat(trailing_newlines));
+    }
+
+    rendered
 }
 
 fn apply_code_block_background(line: &str) -> String {
@@ -770,12 +786,26 @@ mod tests {
         let plain_text = strip_ansi(&flushed);
         assert!(plain_text.contains("Heading"));
         assert!(plain_text.contains("Paragraph"));
+        assert!(flushed.ends_with("\n\n"));
 
         assert_eq!(state.push(&renderer, "```rust\nfn main() {}\n"), None);
         let code = state
             .push(&renderer, "```\n")
             .expect("closed code fence flushes");
         assert!(strip_ansi(&code).contains("fn main()"));
+    }
+
+    #[test]
+    fn streaming_state_preserves_trailing_blank_lines() {
+        let renderer = TerminalRenderer::new();
+        let mut state = MarkdownStreamState::default();
+
+        let rendered = state
+            .push(&renderer, "First paragraph.\n\n")
+            .expect("blank line should flush paragraph");
+
+        assert!(strip_ansi(&rendered).contains("First paragraph."));
+        assert!(rendered.ends_with("\n\n"));
     }
 
     #[test]
