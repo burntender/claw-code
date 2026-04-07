@@ -14,6 +14,9 @@ use crate::sandbox::{
 };
 use crate::ConfigLoader;
 
+/// Default timeout for foreground bash commands when the caller does not specify one.
+const DEFAULT_BASH_TIMEOUT_MS: u64 = 30_000;
+
 /// Input schema for the built-in bash execution tool.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BashCommandInput {
@@ -108,32 +111,29 @@ async fn execute_bash_async(
     cwd: std::path::PathBuf,
 ) -> io::Result<BashCommandOutput> {
     let mut command = prepare_tokio_command(&input.command, &cwd, &sandbox_status, true);
+    let timeout_ms = input.timeout.unwrap_or(DEFAULT_BASH_TIMEOUT_MS);
 
-    let output_result = if let Some(timeout_ms) = input.timeout {
-        match timeout(Duration::from_millis(timeout_ms), command.output()).await {
-            Ok(result) => (result?, false),
-            Err(_) => {
-                return Ok(BashCommandOutput {
-                    stdout: String::new(),
-                    stderr: format!("Command exceeded timeout of {timeout_ms} ms"),
-                    raw_output_path: None,
-                    interrupted: true,
-                    is_image: None,
-                    background_task_id: None,
-                    backgrounded_by_user: None,
-                    assistant_auto_backgrounded: None,
-                    dangerously_disable_sandbox: input.dangerously_disable_sandbox,
-                    return_code_interpretation: Some(String::from("timeout")),
-                    no_output_expected: Some(true),
-                    structured_content: None,
-                    persisted_output_path: None,
-                    persisted_output_size: None,
-                    sandbox_status: Some(sandbox_status),
-                });
-            }
+    let output_result = match timeout(Duration::from_millis(timeout_ms), command.output()).await {
+        Ok(result) => (result?, false),
+        Err(_) => {
+            return Ok(BashCommandOutput {
+                stdout: String::new(),
+                stderr: format!("Command exceeded timeout of {timeout_ms} ms"),
+                raw_output_path: None,
+                interrupted: true,
+                is_image: None,
+                background_task_id: None,
+                backgrounded_by_user: None,
+                assistant_auto_backgrounded: None,
+                dangerously_disable_sandbox: input.dangerously_disable_sandbox,
+                return_code_interpretation: Some(String::from("timeout")),
+                no_output_expected: Some(true),
+                structured_content: None,
+                persisted_output_path: None,
+                persisted_output_size: None,
+                sandbox_status: Some(sandbox_status),
+            });
         }
-    } else {
-        (command.output().await?, false)
     };
 
     let (output, interrupted) = output_result;
@@ -243,7 +243,7 @@ fn prepare_sandbox_dirs(cwd: &std::path::Path) {
 
 #[cfg(test)]
 mod tests {
-    use super::{execute_bash, BashCommandInput};
+    use super::{execute_bash, BashCommandInput, DEFAULT_BASH_TIMEOUT_MS};
     use crate::sandbox::FilesystemIsolationMode;
 
     #[test]
@@ -282,6 +282,33 @@ mod tests {
         .expect("bash command should execute");
 
         assert!(!output.sandbox_status.expect("sandbox status").enabled);
+    }
+
+    #[test]
+    fn applies_default_timeout_when_unspecified() {
+        let output = execute_bash(BashCommandInput {
+            command: String::from("sleep 31"),
+            timeout: None,
+            description: None,
+            run_in_background: Some(false),
+            dangerously_disable_sandbox: Some(false),
+            namespace_restrictions: Some(false),
+            isolate_network: Some(false),
+            filesystem_mode: Some(FilesystemIsolationMode::WorkspaceOnly),
+            allowed_mounts: None,
+        })
+        .expect("bash command should return timeout output");
+
+        assert!(output.interrupted);
+        assert_eq!(
+            output.return_code_interpretation.as_deref(),
+            Some("timeout")
+        );
+        assert!(
+            output
+                .stderr
+                .contains(&format!("Command exceeded timeout of {DEFAULT_BASH_TIMEOUT_MS} ms"))
+        );
     }
 }
 
